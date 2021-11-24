@@ -1,0 +1,326 @@
+---
+title: "Philippine Time Series Analysis"
+author: "Jake Brophy"
+date: "11/24/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+The aim of this project is to demonstrate our knowledge of time series data through an application onto real world data. Our dataset involves the following variables, measured quarterly, from Q1 1999 to Q4 2018:
+
+* REAL_GDP_GROWTH, which is defined as the real GDP growth of the Philippines
+* PSEI, which is defined as the price of the Philippines Stock Exchange Index.
+* BSP_RRP, which represents the rate of the Philippines’s government bond buyback program.
+* UNEM, which represents the rate of unemployment in the Philippines.
+
+
+```{r cars}
+data <- read.csv('SampleVAR.csv')
+library(corrplot)
+attach(data)
+head(data)
+class(data)
+data <- subset(data, select = -c(date))
+```
+
+
+
+```{r pressure, echo=FALSE}
+library(corrplot)
+library(MASS)
+fit1 <- fitdistr(real_gdp_growth, densfun="normal")
+hist(real_gdp_growth, pch=20, breaks=25, prob = TRUE)
+curve(dnorm(x, fit1$estimate[1], fit1$estimate[2]), col="blue", add=T)
+
+fit2 <- fitdistr(unem, densfun="normal")
+hist(unem, pch=20, breaks=25, prob = TRUE)
+curve(dnorm(x, fit2$estimate[1], fit2$estimate[2]), col="blue", add=T)
+
+fit3 <- fitdistr(bsp_rrp, densfun="normal")
+hist(bsp_rrp, pch=20, breaks=25, prob = TRUE)
+curve(dnorm(x, fit3$estimate[1], fit3$estimate[2]), col="blue", add=T)
+
+fit4 <- fitdistr(psei, densfun="normal")
+hist(psei, pch=20, breaks=25, prob = TRUE)
+curve(dnorm(x, fit4$estimate[1], fit4$estimate[2]), col="blue", add=T)
+
+library(ggplot2)
+ggplot(data = data, aes(x=unem, y=bsp_rrp)) + 
+        geom_point()
+
+ggplot(data = data, aes(x=real_gdp_growth, y=psei)) + 
+        geom_point()
+
+c <- cor(data)
+corrplot(c, type = 'upper')
+```
+(GDP histogram)
+You might notice something peculiar about our data on real GDP growth. For our time range (1999-2018), the real GDP growth of the Philippines was never negative. If you do a quick Google search of “the Philippines real GDP growth,” you can validate this claim. You will also notice that the Philippines experienced a negative growth rate in 1998 and 2020, which are years that barely outly our data set.
+
+(Unemployment histogram)
+We have a typical distribution on our unemployment rate. The 7% unemployment rate has the highest frequency out of the data. The rate ranges from 5% to 15%.
+
+(Bond buyback histogram)
+The distribution for the Filipino bond buyback program is a little more choppy than the previous two histograms. We see a high frequency in the 2%-4% ranges as well as the 7% range.
+
+(PSEI histogram)
+The Philippines Stock Exchange Index histogram is the most interesting histogram to look at. We see the index vary from mid $1,500s to high $8,000s. As you will see in the t-display, the PSEI has been growing steadily over our designated time range.
+
+(1st GGPlot)
+We can see that BSP_RRP and the unemployment rate seem to have a linear relationship with each other.
+
+(2nd GGPlot)
+There seems to be some minor correlation between real GDP growth and the Philippines Stock Exchange Index. This makes economic sense because the price of the index and the GDP both generally reflect how much the country is thriving financially.
+
+(Corrplot)
+Our correlation plot precisely reflects all of the economic intuition we can draw from our data. Variables that capture the economic growth of the country correlate with each other. Unemployment seems to negatively correlate with all variables except the government buyback program, for which it positively correlates. This was an interesting correlation that we did not anticipate.
+```{r}
+library(forecast)
+gdp_ts = ts(real_gdp_growth,start=c(2003,1,1), frequency=4)
+psei_ts = ts(psei,start=c(2003,1,1), frequency=4)
+bsp_ts = ts(bsp_rrp,start=c(2003,1,1), frequency=4)
+unem_ts = ts(unem,start=c(2003,1,1), frequency=4)
+tsdisplay(gdp_ts)
+tsdisplay(diff(psei_ts))
+tsdisplay(bsp_ts)
+tsdisplay(unem_ts)
+```
+(GDP ts)
+The ACF and PACF reflect a healthy data set and appear to reveal little dynamics within this time series.
+
+(diff(PSEI) ts)
+The ACF and PACF of the difference of the PSEI remain within the bands, leading us to believe that dynamics are accounted for and will be reliable in our upcoming analysis.
+
+(bsp ts)
+Similar to the GDP time series, the government bond buyback program has a descending ACF and a PACF with a hard drop-off.
+
+(unem ts)
+These figures of the unemployment time series are similar to the GDP and BSP t-display, whereby the ACF slowly descends and the PACF has a healthy drop-off. However, there appears to be more dynamics in the ACF figure than our previous plots. 
+
+```{r}
+library(tseries)
+library(forecast)
+library(lmtest)
+library(dynlm)
+
+g1 = dynlm(gdp_ts~L(gdp_ts,1))
+g5 = dynlm(gdp_ts~L(gdp_ts,1:5))
+set.seed(1)
+row.number <- sample(1:nrow(data), 0.75*nrow(data))
+train = data[row.number,]
+test = data[-row.number,]
+mean((train$real_gdp_growth - predict(g1, train)) ^ 2)
+mean((test$real_gdp_growth - predict(g1, test)) ^ 2)
+mean((train$real_gdp_growth - predict(g5, train)) ^ 2)
+mean((test$real_gdp_growth - predict(g5, test)) ^ 2)
+AIC(g1, g5)
+tsdisplay(g1$residuals)
+tsdisplay(g5$residuals)
+gdp_ar5 <- ar(gdp_ts, aic = FALSE, order.max = 5, method = 'ols')
+plot(forecast(gdp_ar5, 10), type = 'l')
+gdp_ar1 <- ar(gdp_ts, aic = FALSE, order.max = 1, method = 'ols')
+plot(forecast(gdp_ar1, 10), ylab = 'unem')
+
+p1 = dynlm(psei_ts~L(psei_ts,1))
+p5 = dynlm(psei_ts~L(psei_ts,1:5))
+tsdisplay(p1$residuals)
+tsdisplay(p5$residuals)
+AIC(p1, p5)
+mean((train$psei - predict(p1, train)) ^ 2)
+mean((test$psei - predict(p1, test)) ^ 2)
+mean((train$psei - predict(p5, train)) ^ 2)
+mean((test$psei - predict(p5, test)) ^ 2)
+psei_ar1 <- ar(psei_ts, aic = FALSE, order.max = 1, method = 'ols')
+plot(forecast(psei_ar1, 10))
+psei_ar5 <- ar(psei_ts, aic = FALSE, order.max = 5, method = 'ols')
+plot(forecast(psei_ar5, 10))
+
+b1 = dynlm(bsp_ts~L(bsp_ts,1))
+b5 = dynlm(bsp_ts~L(bsp_ts,1:5))
+tsdisplay(b1$residuals)
+tsdisplay(b5$residuals)
+AIC(b1, b5)
+mean((train$bsp_rrp - predict(b1, train)) ^ 2)
+mean((test$bsp_rrp - predict(b1, test)) ^ 2)
+mean((train$bsp_rrp - predict(b5, train)) ^ 2)
+mean((test$bsp_rrp - predict(b5, test)) ^ 2)
+bsp_ar1 <- ar(bsp_ts, aic = FALSE, order.max = 1, method = 'ols')
+plot(forecast(bsp_ar1, 10))
+bsp_ar5 <- ar(bsp_ts, aic = FALSE, order.max = 5, method = 'ols')
+plot(forecast(bsp_ar5, 10))
+
+u1 = dynlm(unem_ts~L(unem_ts,1))
+u5 = dynlm(unem_ts~L(unem_ts,1:5))
+tsdisplay(u1$residuals)
+tsdisplay(u5$residuals)
+AIC(u1, u5)
+mean((train$unem - predict(u1, train)) ^ 2)
+mean((test$unem - predict(u1, test)) ^ 2)
+mean((train$unem - predict(u5, train)) ^ 2)
+mean((test$unem - predict(u5, test)) ^ 2)
+unem_ar1 <- ar(unem_ts, aic = FALSE, order.max = 1, method = 'ols')
+plot(forecast(unem_ar1))
+unem_ar5 <- ar(unem_ts, aic = FALSE, order.max = 5, method = 'ols')
+plot(forecast(unem_ar5, 10))
+```
+
+An AR(1) and AR(5) model was run for each of the variables. 
+
+GDP:
+Starting with real GDP growth, the ACF and PACF of the residuals were below the threshold of 0.2. They were found to be better in the AR(5) model; however, both of them were good. MSE was found for each model using training and test data. The AR(1) model had the lowest MSE and the AIC was lowest in the AR(5) model. MSE is indicative of the AR(1) being the better model; however, AIC, ACF and PACF indicate that AR(5) is preferred. 
+
+PSEI: 
+Moving on to PSEI, again, both the residuals of the AR(1) and AR(5) are below threshold on the ACF and PACF plots. However, AR(5) seems to be preferred, as it has less correlation. The test MSE is lowest in the AR(1) model, but the training model for AR(5) has an even lower MSE. According to the AIC an AR(5) model is preferred, as it is lower than the AR(1) model. AR(5) model is preferred overall. 
+
+BSP: 
+When looking at the ACF and PACF for the AR(1) and AR(5) models, the AR(1) model is very close to having a significant correlation. Therefore, the AR(5) model is preferred (much less correlation). The MSEs are lowest in the AR(5) furthering the preference of AR(5). Lastly, the AR(5) model has a lower AIC than the AR(1) model. Overall there is a strong preference to use an AR(5) model over an AR(1) model.
+
+UNEM:
+For time series data of unemployment, AR(1) and AR(5) models were run. There was a significant amount of correlation as shown in the ACF and PACF of the residuals. The AR(5) had slightly lower correlation, but another model is preferred over AR(1) and AR(5). The test MSE was lower in the AR(1) model; however, using the training data the MSE was found to be lower in the AR(5) model. AIC is lower in the AR(5) model. Therefore, the AR(5) model is preferred over the AR(1) model, but since the correlation with the residuals is great, neither model should be used in practice. 
+```{r}
+library(ARDL)
+library(dynlm)
+df = data.frame(unem_ts, bsp_ts, gdp_ts, psei_ts)
+ardl1 <- ardl(unem_ts ~ bsp_ts, data = df, order = 1)
+plot(predict(ardl1), type = 'l')
+tsdisplay(ardl1$residuals)
+ardl2 <- ardl(unem_ts ~ bsp_ts, data = df, order = c(1,2))
+tsdisplay(ardl2$residuals)
+plot(predict(ardl2), type = 'l')
+reg.ardl1 <- dynlm(gdp_ts ~ L(gdp_ts, 1) + L(psei_ts,1) + L(psei_ts, 2))
+mean((train$unem - predict(reg.ardl1, train)) ^ 2)
+reg.ardl2 <- dynlm(gdp_ts ~ L(gdp_ts, 1) + psei_ts + L(psei_ts, 1))
+mean((train$unem - predict(reg.ardl2, train)) ^ 2)
+ardl3 <- ardl(bsp_ts ~ unem_ts, data = df, order = 1)
+tsdisplay(ardl3$residuals)
+plot(predict(ardl3), type = 'l')
+ardl4 <- ardl(bsp_ts ~ unem_ts, data = df, order = c(1,2))
+tsdisplay(ardl4$residuals)
+plot(predict(ardl4), type = 'l')
+reg.ardl3 <- dynlm(bsp_ts ~ L(bsp_ts, 1) + unem_ts + L(unem_ts, 1))
+mean((train$unem - predict(reg.ardl3, train)) ^ 2)
+reg.ardl4 <- dynlm(bsp_ts ~ L(bsp_ts, 1) + L(unem_ts,1) + L(unem_ts, 2))
+mean((train$unem - predict(reg.ardl4, train)) ^ 2)
+```
+
+We used ARDL models to predict current values of a dependent variable (bsp) based on both the current values of an explanatory variable (unemployment) and the lagged (past period) values of this explanatory variable. Given the data and graph calculated above, we chose (1) psei and (2) unemployment as our explanatory variables; specifically, RGDP growth depends on psei, and bsp depends on unemployment. 
+ARDL(1), ARDL(2), ARDL(3), and ARDL(4) models were used as a standard least squares regressions that include lags of both the dependent variable and explanatory variables as regressors. Given the four models, the ACF and PACF of the residuals of ARDL(3) and ARDL(4) were below the threshold of 0.2 while ARDL(1) and ARDL(2) were exceeding the threshold. Additionally, like part 3, MSE was calculated for each model using training and testing; result shows that the ARDL(3) shows the lowest MSE (which is an indication that this is a better model), and ACF and PACF indicate that ARDL(3) and ARDL(4) are the better models than the first two models.
+
+```{r}
+library(knitr)
+opts_knit$set(global.par = TRUE)
+```
+
+```{r}
+par(oma=c(3,3,3,3))
+library(knitr)
+opts_knit$set(global.par = TRUE)
+v1 <- cbind(unem_ts, bsp_ts)
+colnames(v1) <- cbind("unem_ts","bsp_ts")
+library(vars)
+v2 <- cbind(gdp_ts, psei_ts)
+colnames(v2) <- cbind("gdp_ts","psei_ts")
+lagselect1 <- VARselect(v1, lag.max = 17, type = "const")
+lagselect2 <- VARselect(v2, lag.max = 17, type = "const")
+lagselect1$selection
+lagselect2$selection
+Model1 <- VAR(v1, p = 4, type = "const", season = NULL, exog = NULL)
+Model2 <- VAR(v2, p = 2, type = "const", season = NULL, exog = NULL)
+tsdisplay(residuals(Model1)[,2],main ="Model 1 Residuals")
+tsdisplay(residuals(Model2)[,2],main ="Model 2 Residuals")
+ccf(unem_ts, bsp_ts)
+ccf(psei_ts, gdp_ts)
+grangertest(unem_ts, psei_ts, order = 17)
+grangertest(psei_ts, unem_ts, order = 17)
+grangertest(unem_ts, gdp_ts, order = 17)
+grangertest(gdp_ts, unem_ts, order = 17)
+grangertest(unem_ts, bsp_ts, order = 17)
+grangertest(bsp_ts, unem_ts, order = 17)
+```
+
+The CCF tells us that it seems like unemployment and BSP are maximally correlated between one and two quarter lags, for PSEI and GDP they are maximally correlated between 0 and 1
+
+Judging from the Granger causality test, we can see that none of the variables ganger-cause another.
+
+```{r, fig.height=10, fig.width=20, message=FALSE, warning=FALSE}
+plot(irf(Model1, n.ahead=36))
+
+plot(irf(Model2, n.ahead = 36))
+```
+From the unemployment IRF, we can see that the own-variable impulse response is an initial shock that has a substantial effect but quickly declines before leveling out, and from cross-variable impulse response of bsp, we see that it causes an intial slight increase that quickly levels off
+
+From the BSP IRF, we can see that the own-variable impulse response is a gradual increase that drops, spikes on more time before leveling off, and from cross-variable impulse response of unemployment, we see that it causes an initial large effect that gradually decreases and levels off
+
+From the GDP IRF, we can see that the own-variable impulse response is non-existent, and from cross-variable impulse response of psei, we see that it causes an initial small effect that gradually levels off
+
+
+From the PSEI IRF, we can see that the own-variable impulse response is nonexistent, and from cross-variable impulse response of GDP, we see that it causes an initial small effect that gradually decreases.
+
+```{r, fig.height=10, fig.width=20, message=FALSE, warning=FALSE}
+plot(Model1)
+plot(Model2)
+```
+From the Plot of the Var model of unemployment, we can see that the fit is fairly accurate with somewhat concerning patterns in the residuals later on in the distribution being more closely scattered around 0. This concern is reflected in the spikes in the ACF we see around lags 8 and 12, which suggests that there are some additional dynamics in our model that should be taken into account
+
+From the Var of BSP, we also see a fairly accurate fit, with more consistent clustering around 0. Additionally, we don't see any spikes in the ACF for later lags, suggesting that we captured most dynamics in our model
+
+From the Var of GDP, we also see a fairly accurate fit, with consistent clustering around 0. Additionally, we don't see any spikes in the ACF for later lags, suggesting that we captured most dynamics in our model
+
+From the Var of PSEI, we also see a fairly accurate fit, with fairly consistent clustering of residuals around 0, with some concerning dynamics later on in the distribution. Additionally, we don't see any spikes in the ACF for later lags, suggesting that we captured most dynamics in our model
+```{r,fig.height=10, fig.width=20, message=FALSE, warning=FALSE}
+library(vars)
+set.seed(1)
+row.number2 <- sample(1:nrow(df), 0.75*nrow(df))
+train2 = df[row.number2,]
+test2 = df[-row.number2,]
+v <- cbind(train2$unem_ts, train2$bsp_ts)
+MSEModel <- VAR(v, p = 4, type = "const", season = NULL, exog = NULL)
+ptrain <- predict(MSEModel, train)
+library(zoo)
+ptrain_u <- (ptrain[[1]][['y1']][,1])
+ptrain_u
+mean((train$unem - ptrain_u)^2)
+ptest <- predict(MSEModel, test)
+ptest_u <- (ptest[[1]][['y1']][,1])
+mean((test$unem - ptest_u) ^ 2)
+v1 <- cbind(unem_ts, bsp_ts)
+colnames(v1) <- cbind("unem_ts","bsp_ts")
+v2 <- cbind(gdp_ts, psei_ts)
+colnames(v2) <- cbind("gdp_ts","psei_ts")
+MSEModel2 <- VAR(v, p = 2, type = "const", season = NULL, exog = NULL)
+ptrain2 <- predict(MSEModel2, train)
+ptrain_g2 <- (ptrain2[[1]][['y1']][,1])
+mean((train$real_gdp_growth - ptrain_g2)^2)
+ptest2 <- predict(MSEModel2, test)
+ptest2_g <- (ptest2[[1]][['y1']][,1])
+mean((train$real_gdp_growth - ptest2_g)^2)
+install.packages('lmvar')
+library(lmvar)
+
+AIC(Model1, Model2)
+BIC(Model1, Model2)
+
+forecast1 <- predict(Model1)
+
+plot(forecast1)
+forecast2 <- predict(Model2)
+plot(forecast2)
+
+plot(fevd(VAR(v2, p = 2, type = "const", season = NULL, exog = NULL)))
+
+plot(fevd(VAR(v1, p = 4, type = "const", season = NULL, exog = NULL)))
+```
+From the train test split we can see that Model is substantially better with a training MSE of 6.104315 and a testing MSE of 3.441378, while Model had a training MSE of 12.56561 and a testing MSE of 12.56561. Additionally, Model1 had significantly lower AIC and BIC, further suggesting that it was better.
+
+From the FEVD plot, we can see that more variation in BSP can be explained by unemployment, which makes sense since BSP is a tool used to affect unemployment, than variation in unemployment can be explained by BSP
+
+From the other FEVD plot, we can see that more variation in gdp can be explained by psei than variation in psei can be explained by GDP.
+
+For all plots, however, very little variation in a variable can be explained by another
+
+
